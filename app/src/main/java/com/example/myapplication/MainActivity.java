@@ -9,15 +9,20 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.location.Address;
+import android.location.Location;
 import android.os.Build;
 import android.os.Bundle;
 
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
 import com.google.android.material.snackbar.Snackbar;
 
 import androidx.annotation.NonNull;
@@ -51,6 +56,8 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private ActivityMainBinding binding;
 
     private static final int LOCATION_PERMISSION_CODE = 101;
+    Location currentLocation;
+    FusedLocationProviderClient fusedLocationProviderClient;
 
     private static final String TAG = "MainActivity";
 
@@ -67,38 +74,26 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     Context way;
 
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if(Build.VERSION.SDK_INT >= 23){
-            if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
-                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
-            }else {
-            //Req Location Permission
-            startService();
-            }
-        } else {
-            //Start the Location Service
-            startService();
-        }
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         setSupportActionBar(binding.toolbar);
 
-        NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
-        appBarConfiguration = new AppBarConfiguration.Builder(navController.getGraph()).build();
-        NavigationUI.setupActionBarWithNavController(this, navController, appBarConfiguration);
-
-        binding.fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
-            }
-        });
+//        NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
+//        appBarConfiguration = new AppBarConfiguration.Builder(navController.getGraph()).build();
+//        NavigationUI.setupActionBarWithNavController(this, navController, appBarConfiguration);
+//
+//        binding.fab.setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View view) {
+//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
+//                        .setAction("Action", null).show();
+//            }
+//        });
 
         // accelerometer
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
@@ -106,15 +101,31 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
 
 
+        //gps
+        if(Build.VERSION.SDK_INT >= 23){
+            if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
+                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
+            }else {
+                //Req Location Permission
+                startService();
+            }
+        } else {
+            //Start the Location Service
+            startService();
+        }
+
         //map
-        if (isLocationPermissionGranted()) {
-            SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                    .findFragmentById(R.id.map);
-            mapFragment.getMapAsync(this);
-        }
-        else {
-            requestLocationPermission();
-        }
+        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
+        getCurrentLocation();
+
+//        if (isLocationPermissionGranted()) {
+//            SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+//                    .findFragmentById(R.id.map);
+//            mapFragment.getMapAsync(this);
+//        }
+//        else {
+//            requestLocationPermission();
+//        }
     }
 
     private void startService(){
@@ -125,13 +136,19 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode){
-            case 1:
-                if(grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                    startService();
-                }else {
-                    Toast.makeText(this, "Give me permission", Toast.LENGTH_LONG).show();
+        switch (LOCATION_PERMISSION_CODE){
+//            case 1:
+//                if(grantResults[0] == PackageManager.PERMISSION_GRANTED){
+//                    startService();
+//                }else {
+//                    Toast.makeText(this, "Give me permission", Toast.LENGTH_LONG).show();
+//                }
+//                break;
+            case LOCATION_PERMISSION_CODE:
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    getCurrentLocation();
                 }
+                break;
         }
     }
 
@@ -223,21 +240,27 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             map.setMyLocationEnabled(true);
         }
 
+        LatLng myLocation = new LatLng(currentLocation.getLatitude(), currentLocation.getLongitude());
+        map.addMarker(new MarkerOptions().position(myLocation).title("My Location"));
+        map.moveCamera(CameraUpdateFactory.newLatLngZoom(myLocation, zoomLevel));
+
         LocationService ls = new LocationService();
-        while (true) {
-            List<List<String>> list = ls.getGPSdata();
-            for (List<String> l : list) {
-                if (l.get(2).equals("0")) {
-                    LatLng latLng = new LatLng(Double.parseDouble(l.get(0)), Double.parseDouble(l.get(1)));
-                    map.addMarker(new MarkerOptions().position(latLng).title("Bump"));
-                    map.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoomLevel));
-                    l.set(2, "1");
-                }
-                else {
-                    continue;
-                }
+        List<List<String>> list = ls.getGPSdata();
+        for (List<String> l : list) {
+            if (l.get(2).equals("0")) {
+                LatLng latLng = new LatLng(Double.parseDouble(l.get(0)), Double.parseDouble(l.get(1)));
+                map.addMarker(new MarkerOptions().position(latLng).title("Bump"));
+                map.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoomLevel));
+                l.set(2, "1");
+            }
+            else {
+                continue;
             }
         }
+
+        LatLng test = new LatLng(52.371807, 4.896029);
+        map.addMarker(new MarkerOptions().position(test).title("Amsterdam"));
+        map.moveCamera(CameraUpdateFactory.newLatLngZoom(test, zoomLevel));
     }
 
     private boolean isLocationPermissionGranted() {
@@ -253,5 +276,27 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private void requestLocationPermission() {
         ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION},
                 LOCATION_PERMISSION_CODE);
+    }
+
+    private void getCurrentLocation() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED
+                    && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                        != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION},
+                    LOCATION_PERMISSION_CODE);
+        }
+        Task<Location> task = fusedLocationProviderClient.getLastLocation();
+        task.addOnSuccessListener(new OnSuccessListener<Location>() {
+            @Override
+            public void onSuccess(Location location) {
+                if (location != null) {
+                    currentLocation = location;
+                    Toast.makeText(getApplicationContext(), String.valueOf(currentLocation.getLatitude()), Toast.LENGTH_LONG).show();
+                    SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
+                    mapFragment.getMapAsync(MainActivity.this);
+                }
+            }
+        });
     }
 }
