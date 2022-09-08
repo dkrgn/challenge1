@@ -1,8 +1,14 @@
 package com.example.myapplication;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.location.Address;
 import android.os.Build;
 import android.os.Bundle;
 
@@ -15,8 +21,10 @@ import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.material.snackbar.Snackbar;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.util.Log;
 import android.view.View;
 
 import androidx.core.app.ActivityCompat;
@@ -32,13 +40,33 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
 
-public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainActivity extends AppCompatActivity implements OnMapReadyCallback, SensorEventListener {
 
     private GoogleMap map;
     private AppBarConfiguration appBarConfiguration;
     private ActivityMainBinding binding;
 
     private static final int LOCATION_PERMISSION_CODE = 101;
+
+    private static final String TAG = "MainActivity";
+
+    private ArrayList<Double> accList = new ArrayList<>();
+    private ArrayList deltaAcc = new ArrayList<Double>();
+    private ArrayList<Double> SMavg = new ArrayList<>();
+
+    double x = 0.0;
+    double y = 0.0;
+    private int cnt = 0;
+
+    private SensorManager sensorManager;
+    Sensor accelerometer;
+
+    Context way;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,6 +100,13 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             }
         });
 
+        // accelerometer
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+
+
+        //map
         if (isLocationPermissionGranted()) {
             SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                     .findFragmentById(R.id.map);
@@ -129,17 +164,79 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 || super.onSupportNavigateUp();
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    @Override
+    public void onSensorChanged(SensorEvent sensorEvent) {
+        long time = System.currentTimeMillis();
+        Log.d(TAG, "Time: " + Instant.ofEpochSecond(time) + " X: " + sensorEvent.values[0] + " Y: " + sensorEvent.values[1] + " Z: " + sensorEvent.values[2]);
+        accList.add((double) sensorEvent.values[2]);
+
+        if (accList.size() > 1) {
+            x = (double) accList.get(cnt);
+            y = (double) accList.get(cnt - 1);
+            System.out.println("delta = " + (x - y));
+            double interval = Math.floor(accList.size() / 5);
+            if (interval >= 1) {
+                for (int i = 0; i < interval; i++) {
+                    double avg = 0.0;
+                    for (int j = 0; j < 5; j++) {
+                        avg += accList.get(5 * i + j);
+                    }
+                    System.out.println("avg: " + avg / 5);
+                    SMavg.add(avg / 5);
+                }
+            }
+            System.out.println("Moving avg: " + SMavg);
+
+//            for (int i = 0; i < SMavg.size(); i++) {
+//                double normal = 0.0;
+//                for (int j = 0; j < 5; j++) {
+//                    normal += SMavg.get(j);
+//                }
+//                normal = normal/5;
+//
+//            }
+            //classify the anomalies based on the delta values we achieve during the trial on a bike
+            //define a threshold
+            //use a hashmap to record the number and types of anomalies
+            //also mark it in the map at the same time
+            cnt++;
+        } else {
+            System.out.println(accList.get(cnt));
+            cnt++;
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int i) {
+
+    }
+
+
     @Override
     public void onMapReady(@NonNull GoogleMap googleMap) {
         map = googleMap;
         float zoomLevel = 16.0f;
-        LatLng latLng = new LatLng(52.371807, 4.896029);
-        map.addMarker(new MarkerOptions().position(latLng).title("Bump"));
-        map.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoomLevel));
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            == PackageManager.PERMISSION_GRANTED) {
+                == PackageManager.PERMISSION_GRANTED) {
             map.setMyLocationEnabled(true);
+        }
+
+        LocationService ls = new LocationService();
+        while (true) {
+            List<List<String>> list = ls.getGPSdata();
+            for (List<String> l : list) {
+                if (l.get(2).equals("0")) {
+                    LatLng latLng = new LatLng(Double.parseDouble(l.get(0)), Double.parseDouble(l.get(1)));
+                    map.addMarker(new MarkerOptions().position(latLng).title("Bump"));
+                    map.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoomLevel));
+                    l.set(2, "1");
+                }
+                else {
+                    continue;
+                }
+            }
         }
     }
 

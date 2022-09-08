@@ -28,6 +28,11 @@ import java.util.List;
 public class LocationService extends Service {
     FusedLocationProviderClient fusedLocationProviderClient;
     LocationCallback locationCallback;
+
+    public List<List<String>> getGPSdata() {
+        return GPSdata;
+    }
+
     private List<List<String>> GPSdata = new LinkedList<>();
 
     @Override
@@ -38,7 +43,6 @@ public class LocationService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        ;
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
         locationCallback = new LocationCallback() {
             @Override
@@ -48,6 +52,7 @@ public class LocationService extends Service {
                 List<String> temp = new ArrayList<String>();
                 temp.add(new String(locationResult.getLastLocation().getLatitude() + ""));
                 temp.add(new String(locationResult.getLastLocation().getLongitude() + ""));
+                temp.add("0");
                 GPSdata.add(temp);
                 System.out.println(GPSdata);
             }
