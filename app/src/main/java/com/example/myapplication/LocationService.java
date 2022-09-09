@@ -28,6 +28,11 @@ import java.util.List;
 public class LocationService extends Service {
     FusedLocationProviderClient fusedLocationProviderClient;
     LocationCallback locationCallback;
+
+    public List<List<String>> getGPSdata() {
+        return GPSdata;
+    }
+
     private List<List<String>> GPSdata = new LinkedList<>();
 
     @Override
